@@ -3,13 +3,14 @@
   "dockerComposeFile": "../docker-compose.yml",
   "service": "app",
   "workspaceFolder": "/app",
-  "mounts": [
-    "source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached"
-  ],
   "remoteUser": "root",
+  "mounts": [
+    "source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached,readonly"
+  ],
   "customizations": {
     "vscode": {
       "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
     }
-  }
+  },
+  "postCreateCommand": "mkdir -p /etc/ssh/ssh_config.d && ssh-keyscan -H github.com >> /etc/ssh/ssh_known_hosts && printf 'Host github.com\\n  User git\\n  UserKnownHostsFile /etc/ssh/ssh_known_hosts\\n' > /etc/ssh/ssh_config.d/10-github.conf"
 }
