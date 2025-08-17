@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { Note } from "../types/note";
 import { NotFoundError } from "../errors/AppError";
-import { noteCreateSchema, noteUpdateSchema } from "../schema/note";
+import { noteCreateSchema, noteUpdateSchema } from "../schemas/note";
 import { validate } from "../middlewares/validate";
 
 const router = Router();

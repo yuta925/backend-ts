@@ -26,7 +26,6 @@ export function errorHandler(
   }
 
   const isAppError = err instanceof AppError;
-
   const status = isAppError ? err.status : 500;
   const code = isAppError && err.code ? err.code : "INTERNAL_ERROR";
   const message =
@@ -35,16 +34,11 @@ export function errorHandler(
   const payload: Record<string, unknown> = {
     error: { code, message },
   };
-
   if (isAppError && err.details) {
     payload.error = { ...payload.error as object, details: err.details };
   }
 
   // ログ（必要に応じて pino に置き換え可）
-  if (!isAppError) {
-    // eslint-disable-next-line no-console
-    console.error(err);
-  }
-
+  if (!isAppError) console.error(err);
   res.status(status).json(payload);
 }
