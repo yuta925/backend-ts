@@ -1,0 +1,201 @@
+openapi: 3.0.3
+info:
+  title: Backend TS API
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+
+  /notes:
+    get:
+      summary: List notes
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+          description: Search keyword (title/body)
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [createdAt, title]
+            default: createdAt
+        - in: query
+          name: order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoteListResponse"
+
+    post:
+      summary: Create note
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteCreate"
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoteSingleResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /notes/{id}:
+    get:
+      summary: Get a note
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoteSingleResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      summary: Update a note
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteUpdate"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoteSingleResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      summary: Delete a note
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: no content
+
+components:
+  schemas:
+    Note:
+      type: object
+      required: [id, title, createdAt]
+      properties:
+        id: { type: integer, example: 1 }
+        title: { type: string, example: "first" }
+        body: { type: string, nullable: true, example: "hello" }
+        createdAt:
+          type: integer
+          description: epoch millis
+          example: 1734432000000
+
+    NoteCreate:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 100 }
+        body: { type: string, maxLength: 1000 }
+
+    NoteUpdate:
+      allOf:
+        - $ref: "#/components/schemas/NoteCreate"
+
+    NoteSingleResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/Note"
+
+    NoteListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Note" }
+        meta:
+          type: object
+          properties:
+            page: { type: integer, example: 1 }
+            limit: { type: integer, example: 10 }
+            total: { type: integer, example: 42 }
+            hasNext: { type: boolean, example: true }
+
+  responses:
+    BadRequest:
+      description: bad request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string, example: BAD_REQUEST }
+                  message: { type: string, example: Validation failed }
+                  details:
+                    type: object
+    NotFound:
+      description: not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string, example: NOT_FOUND }
+                  message: { type: string, example: note not found }
