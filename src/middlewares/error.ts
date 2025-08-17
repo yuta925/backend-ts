@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { AppError } from "../errors/AppError";
+import z, { ZodError } from "zod";
 
 // 404: 未マッチのルート
 export function notFound(_req: Request, _res: Response, next: NextFunction) {
@@ -13,7 +14,17 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ) {
-  // Zodなどのサードパーティエラーも包んで返したい場合はここで分岐
+  // ★ Zodのバリデーションエラーを400に揃える
+  if (err instanceof ZodError) {
+    return res.status(400).json({
+      error: {
+        code: "BAD_REQUEST",
+        message: "Validation failed",
+        details: z.treeifyError(err) // { fieldErrors, formErrors }
+      },
+    });
+  }
+
   const isAppError = err instanceof AppError;
 
   const status = isAppError ? err.status : 500;

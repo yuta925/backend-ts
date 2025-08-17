@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { Note } from "../types/note";
-import { BadRequestError, NotFoundError } from "../errors/AppError";
+import { NotFoundError } from "../errors/AppError";
+import { noteCreateSchema, noteUpdateSchema } from "../schema/note";
+import { validate } from "../middlewares/validate";
 
 const router = Router();
 let notes: Note[] = [];
@@ -10,10 +12,8 @@ router.get("/", (_req, res) => {
   res.json({ notes });
 });
 
-router.post("/", (req, res) => {
-  const { title, body } = req.body ?? {};
-  if (!title) throw new BadRequestError("title is required");
-  const note = { id: seq++, title, body };
+router.post("/", validate(noteCreateSchema), (req, res) => {
+  const note = { id: seq++, ...(req.body as any) };
   notes.push(note);
   res.status(201).json({ note });
 });
@@ -25,14 +25,13 @@ router.get("/:id", (req, res) => {
   res.json({ note });
 });
 
-router.put("/:id", (req, res) => {
+router.put("/:id", validate(noteUpdateSchema), (req, res) => {
   const id = Number(req.params.id);
   const idx = notes.findIndex(n => n.id === id);
   if (idx === -1) return res.status(404).json({ error: "not found" });
 
-  const { title, body } = req.body ?? {};
-  if (!title) throw new BadRequestError("title is required");
-  notes[idx] = { id, title, body };
+  const data = noteUpdateSchema.parse(req.body); // ← ここでvalidate
+  notes[idx] = { id, ...data };
   res.json({ note: notes[idx] });
 });
 

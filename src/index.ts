@@ -1,7 +1,7 @@
 import "express-async-errors"
 import express from "express";
 import router from "./routes";
-import { errorHandler, notFound } from "./middleware/error";
+import { errorHandler, notFound } from "./middlewares/error";
 
 const app = express();
 const port = 3000;
