@@ -11,12 +11,21 @@ import cors from "cors";
 import { logger } from "./middlewares/log";
 import "./config/env";
 
+import { apiLimiter } from "./middlewares/rateLimit";
+
 const app = express();
 const port = Number(process.env.PORT ?? 3000);
+
+// 逆プロキシ配下での正しいIP取得（Heroku/Render/NGINX等の背後なら必須）
+app.set("trust proxy", 1);
 
 app.use(express.json());
 app.use(cors());
 app.use(logger);
+
+// 重要: 乱用されやすいパスに適用
+app.use("/notes", apiLimiter);
+// あるいはAPI全体に適用したい場合： app.use(apiLimiter);
 
 // --- Swagger UI ( /docs )
 const openapiPath = path.join(__dirname, "../openapi.yaml");
