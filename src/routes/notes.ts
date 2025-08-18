@@ -45,13 +45,17 @@ router.get("/", (req, res) => {
 router.post("/", validate(noteCreateSchema), (req, res) => {
   const note: Note = { id: seq++, createdAt: Date.now(), ...(req.body as any) };
   notes.push(note);
+  req.log.info({ noteId: note.id }, "note created"); 
   res.status(201).json({ note });
 });
 
 router.get("/:id", (req, res) => {
   const id = Number(req.params.id);
   const note = notes.find(n => n.id === id);
-  if (!note) throw new NotFoundError("note not found", { id });
+  if (!note) {
+    req.log.warn({ id }, "note not found"); // ★ ログ
+    throw new NotFoundError("note not found", { id });
+  }
   const etag = weakEtag(note);
   if (req.headers["if-none-match"] === etag) {
     return res.status(304).end();

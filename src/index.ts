@@ -8,12 +8,15 @@ import fs from "fs";
 import path from "path";
 import yaml from "yaml";
 import cors from "cors";
+import { logger } from "./middlewares/log";
+import "./config/env";
 
 const app = express();
-const port = 3000;
+const port = Number(process.env.PORT ?? 3000);
 
 app.use(express.json());
 app.use(cors());
+app.use(logger);
 
 // --- Swagger UI ( /docs )
 const openapiPath = path.join(__dirname, "../openapi.yaml");
