@@ -6,10 +6,13 @@ import { z } from "zod";
 dotenvFlow.config();
 
 const schema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  NODE_ENV: z
+    .enum(["development", "test", "production"])
+    .default("development"),
   PORT: z.coerce.number().default(3000),
-  DATABASE_URL: z.string().url().optional(), // Day4で使う
+  DATABASE_URL: z.url().optional(), // Day4で使う
   JWT_SECRET: z.string().min(32).optional(), // Day8で使う
 });
+
 
 export const env = schema.parse(process.env);

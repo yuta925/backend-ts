@@ -5,77 +5,84 @@ import { noteCreateSchema, noteUpdateSchema } from "../schemas/note";
 import { validate } from "../middlewares/validate";
 import { parsePage, sliceByPage } from "../utils/pagination";
 import { weakEtag } from "../utils/etag";
+import { prisma } from "../lib/prisma";
+import { Prisma } from "@prisma/client";
 
 const router = Router();
 let notes: Note[] = [];
 let seq = 1;
 
-router.get("/", (req, res) => {
-  const q = String(req.query.q ?? "").toLowerCase();
-  const sort = (String(req.query.sort ?? "createdAt") as "createdAt" | "title");
-  const order = (String(req.query.order ?? "desc") as "asc" | "desc");
-  const page = parsePage(req.query);
+router.get("/", async (req, res) => {
+  const q = String(req.query.q ?? "").trim();
+  const sort = String(req.query.sort ?? "createdAt") as "createdAt" | "title";
+  const order = String(req.query.order ?? "desc") as "asc" | "desc";
+  const { page, limit } = parsePage(req.query);
 
-    // filter
-  let list = notes;
-  if (q) {
-    list = list.filter(n =>
-      n.title.toLowerCase().includes(q) ||
-      (n.body ?? "").toLowerCase().includes(q)
-    );
-  }
+  // 件数
+  const where = q
+    ? {
+        OR: [
+          { title: { contains: q, mode: Prisma.QueryMode.insensitive } },
+          { body: { contains: q, mode: Prisma.QueryMode.insensitive } },
+        ],
+      }
+    : {};
 
-  // sort
-  list = list.sort((a, b) => {
-    const va = sort === "createdAt" ? a.createdAt : a.title.toLowerCase();
-    const vb = sort === "createdAt" ? b.createdAt : b.title.toLowerCase();
-    if (va < vb) return order === "asc" ? -1 : 1;
-    if (va > vb) return order === "asc" ? 1 : -1;
-    return 0;
+  const total = await prisma.note.count({ where });
+
+  // データ
+  const data = await prisma.note.findMany({
+    where,
+    orderBy: { [sort]: order },
+    skip: (page - 1) * limit,
+    take: limit,
   });
 
-  
-  const total = list.length;
-  const pageItems = sliceByPage(list, page);
-  const meta = { ...page, total, hasNext: page.page * page.limit < total };
-
-  res.json({ data: pageItems, meta });
+  res.json({
+    data,
+    meta: { page, limit, total, hasNext: page * limit < total },
+  });
 });
 
 router.post("/", validate(noteCreateSchema), (req, res) => {
   const note: Note = { id: seq++, createdAt: Date.now(), ...(req.body as any) };
   notes.push(note);
-  req.log.info({ noteId: note.id }, "note created"); 
+  req.log.info({ noteId: note.id }, "note created");
   res.status(201).json({ note });
 });
 
-router.get("/:id", (req, res) => {
+router.get("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const note = notes.find(n => n.id === id);
-  if (!note) {
-    req.log.warn({ id }, "note not found"); // ★ ログ
-    throw new NotFoundError("note not found", { id });
-  }
-  const etag = weakEtag(note);
-  if (req.headers["if-none-match"] === etag) {
-    return res.status(304).end();
-  }
+  const note = await prisma.note.findUnique({ where: { id } });
+  if (!note) throw new NotFoundError("note not found", { id });
+
+  // 304対応（ETag + Last-Modified）
+  const etag = weakEtag({
+    id: note.id,
+    title: note.title,
+    body: note.body,
+    updatedAt: note.updatedAt,
+  });
+  if (req.headers["if-none-match"] === etag) return res.status(304).end();
+
   res.setHeader("ETag", etag);
+  res.setHeader("Last-Modified", new Date(note.updatedAt).toUTCString());
   res.json({ data: note });
 });
 
-router.put("/:id", validate(noteUpdateSchema), (req, res) => {
+router.put("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const idx = notes.findIndex(n => n.id === id);
-  if (idx === -1) return res.status(404).json({ error: "not found" });
-  const data = noteUpdateSchema.parse(req.body); // ← ここでvalidate
-  notes[idx] = { ...notes[idx], ...data };
-  res.json({ data: notes[idx] });
+  const input = noteUpdateSchema.parse(req.body);
+  const note = await prisma.note
+    .update({ where: { id }, data: input })
+    .catch(() => null);
+  if (!note) throw new NotFoundError("note not found", { id });
+  res.json({ data: note });
 });
 
-router.delete("/:id", (req, res) => {
+router.delete("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  notes = notes.filter(n => n.id !== id);
+  await prisma.note.delete({ where: { id } }).catch(() => {}); // 幂等
   res.status(204).send();
 });
 
