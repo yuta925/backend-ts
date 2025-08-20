@@ -1,16 +1,16 @@
 import { Router } from "express";
 import { Note } from "../types/note";
-import { NotFoundError } from "../errors/AppError";
+import { BadRequestError, NotFoundError } from "../errors/AppError";
 import { noteCreateSchema, noteUpdateSchema } from "../schemas/note";
 import { validate } from "../middlewares/validate";
-import { parsePage, sliceByPage } from "../utils/pagination";
-import { weakEtag } from "../utils/etag";
+import { parsePage } from "../utils/pagination";
+import { parseIfNoneMatch, weakEtagFromParts } from "../utils/etag";
 import { prisma } from "../lib/prisma";
 import { Prisma } from "@prisma/client";
+import z from "zod";
 
 const router = Router();
-let notes: Note[] = [];
-let seq = 1;
+const idSchema = z.coerce.number().int().positive(); // "1" も数値へ。NaN/≤0は弾く
 
 router.get("/", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
@@ -44,26 +44,34 @@ router.get("/", async (req, res) => {
   });
 });
 
-router.post("/", validate(noteCreateSchema), (req, res) => {
-  const note: Note = { id: seq++, createdAt: Date.now(), ...(req.body as any) };
-  notes.push(note);
+router.post("/", async (req, res) => {
+  const input = noteCreateSchema.parse(req.body);
+  const note = await prisma.note.create({ data: input });
   req.log.info({ noteId: note.id }, "note created");
-  res.status(201).json({ note });
+  res.status(201).json({ data: note });
 });
 
 router.get("/:id", async (req, res) => {
-  const id = Number(req.params.id);
+  const parsed = z.coerce.number().int().positive().safeParse(req.params.id);
+  if (!parsed.success) throw new BadRequestError("invalid id");
+  const id = parsed.data;
+
   const note = await prisma.note.findUnique({ where: { id } });
   if (!note) throw new NotFoundError("note not found", { id });
 
-  // 304対応（ETag + Last-Modified）
-  const etag = weakEtag({
-    id: note.id,
-    title: note.title,
-    body: note.body,
-    updatedAt: note.updatedAt,
-  });
-  if (req.headers["if-none-match"] === etag) return res.status(304).end();
+  const etag = weakEtagFromParts(
+    note.id,
+    note.title,
+    note.body,
+    note.updatedAt.getTime()
+  );
+  const inm = parseIfNoneMatch(req.headers["if-none-match"]);
+
+  if (inm.includes("*") || inm.includes(etag)) {
+    res.setHeader("ETag", etag);
+    res.setHeader("Last-Modified", new Date(note.updatedAt).toUTCString());
+    return res.status(304).end();
+  }
 
   res.setHeader("ETag", etag);
   res.setHeader("Last-Modified", new Date(note.updatedAt).toUTCString());
@@ -71,7 +79,10 @@ router.get("/:id", async (req, res) => {
 });
 
 router.put("/:id", async (req, res) => {
-  const id = Number(req.params.id);
+  const parsed = z.coerce.number().int().positive().safeParse(req.params.id);
+  if (!parsed.success) throw new BadRequestError("invalid id");
+  const id = parsed.data;
+
   const input = noteUpdateSchema.parse(req.body);
   const note = await prisma.note
     .update({ where: { id }, data: input })
@@ -81,9 +92,13 @@ router.put("/:id", async (req, res) => {
 });
 
 router.delete("/:id", async (req, res) => {
-  const id = Number(req.params.id);
-  await prisma.note.delete({ where: { id } }).catch(() => {}); // 幂等
+  const parsed = z.coerce.number().int().positive().safeParse(req.params.id);
+  if (!parsed.success) throw new BadRequestError("invalid id");
+  const id = parsed.data;
+
+  await prisma.note.delete({ where: { id } }).catch(() => {});
   res.status(204).send();
 });
+
 
 export default router;
