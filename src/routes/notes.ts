@@ -1,8 +1,6 @@
 import { Router } from "express";
-import { Note } from "../types/note";
 import { BadRequestError, NotFoundError } from "../errors/AppError";
 import { noteCreateSchema, noteUpdateSchema } from "../schemas/note";
-import { validate } from "../middlewares/validate";
 import { parsePage } from "../utils/pagination";
 import { parseIfNoneMatch, weakEtagFromParts } from "../utils/etag";
 import { prisma } from "../lib/prisma";
@@ -10,7 +8,6 @@ import { Prisma } from "@prisma/client";
 import z from "zod";
 
 const router = Router();
-const idSchema = z.coerce.number().int().positive(); // "1" も数値へ。NaN/≤0は弾く
 
 router.get("/", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
@@ -84,10 +81,7 @@ router.put("/:id", async (req, res) => {
   const id = parsed.data;
 
   const input = noteUpdateSchema.parse(req.body);
-  const note = await prisma.note
-    .update({ where: { id }, data: input })
-    .catch(() => null);
-  if (!note) throw new NotFoundError("note not found", { id });
+  const note = await prisma.note.update({ where: { id }, data: input });
   res.json({ data: note });
 });
 
@@ -96,9 +90,8 @@ router.delete("/:id", async (req, res) => {
   if (!parsed.success) throw new BadRequestError("invalid id");
   const id = parsed.data;
 
-  await prisma.note.delete({ where: { id } }).catch(() => {});
+  await prisma.note.delete({ where: { id } });
   res.status(204).send();
 });
-
 
 export default router;
