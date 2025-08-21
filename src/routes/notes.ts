@@ -44,7 +44,7 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   const input = noteCreateSchema.parse(req.body);
   const note = await prisma.note.create({ data: input });
-  req.log.info({ noteId: note.id }, "note created");
+  req.log?.info({ noteId: note.id }, "note created");
   res.status(201).json({ data: note });
 });
 
