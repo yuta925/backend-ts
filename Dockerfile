@@ -8,6 +8,8 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package*.json ./
+# Ensure Prisma schema exists before npm install (postinstall runs prisma generate)
+COPY prisma ./prisma
 RUN npm install
 
 COPY . .

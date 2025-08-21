@@ -6,17 +6,14 @@ services:
       - "3000:3000"
     volumes:
       - .:/app
-      - ./src:/app/src
-      - ./package.json:/app/package.json
-      - ./tsconfig.json:/app/tsconfig.json
-      - /app/node_modules
       - ${HOME}/.ssh:/root/.ssh:ro
-    command: npm run dev
+    command: sh -c "npm ci && npx prisma generate && npm run dev"
     depends_on:
       db:
         condition: service_healthy   # ← 待機
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/app?schema=public
+      - NODE_ENV=development
   db:
     image: postgres:16
     restart: unless-stopped

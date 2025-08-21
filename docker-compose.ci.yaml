@@ -1,0 +1,18 @@
+services:
+  app:
+    # ログをできるだけ見やすく
+    tty: true
+    # CIではテストだけ実行（dev サーバは起動しない）
+    command: >
+      sh -lc "
+        npm ci &&
+        npx prisma generate &&
+        npx prisma migrate deploy &&
+        npm run test
+      "
+    environment:
+      - NODE_ENV=test
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/app?schema=public
+    # CI では不要/危険なボリュームは付けない（ssh 等）
+    volumes:
+      - .:/app

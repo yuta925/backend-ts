@@ -51,4 +51,28 @@ describe("Notes API", () => {
     // title を @unique にしていない場合は skip か 201 を期待に変更
     expect([201, 409]).toContain(res.status);
   });
+
+  it("If-Match mismatch -> 412 Precondition Failed", async () => {
+    const created = await request(app)
+      .post("/notes")
+      .send({ title: "lock", body: "v1" });
+    const id = created.body.data.id as number;
+
+    const first = await request(app).get(`/notes/${id}`);
+    const etag = String(first.headers["etag"]);
+
+    // 正しい ETag で更新（成功）
+    const ok = await request(app)
+      .put(`/notes/${id}`)
+      .set("If-Match", etag)
+      .send({ body: "v2" });
+    expect(ok.status).toBe(200);
+
+    // 古い ETag で更新（412）
+    const bad = await request(app)
+      .put(`/notes/${id}`)
+      .set("If-Match", 'W/"deadbeef"')
+      .send({ body: "v3" });
+    expect(bad.status).toBe(412);
+  });
 });
