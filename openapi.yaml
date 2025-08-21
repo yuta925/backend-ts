@@ -115,6 +115,10 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        '412':
+          $ref: '#/components/responses/PreconditionFailed412'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired428'
 
     delete:
       summary: Delete a note
@@ -126,6 +130,52 @@ paths:
       responses:
         "204":
           description: no content
+        '412':
+          $ref: '#/components/responses/PreconditionFailed412'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired428'          
+    
+    patch:
+      summary: Partially update a note (conditional)
+      description: |
+        Partial update. Requires `If-Match` header with the latest ETag.
+        Returns 412 if the ETag does not match, or 428 if the header is missing.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              # 既存の更新スキーマに合わせてください（例: NoteUpdate）
+              type: object
+              properties:
+                title: { type: string }
+                body: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Note'   # 既存の Note スキーマ参照
+        '404':
+          description: Not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed412'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired428'
 
 components:
   schemas:
@@ -199,3 +249,35 @@ components:
                 properties:
                   code: { type: string, example: NOT_FOUND }
                   message: { type: string, example: note not found }
+    PreconditionRequired428:
+      description: Precondition Required
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            properties:
+              type: { type: string }
+              title: { type: string, example: Precondition Required }
+              status: { type: integer, example: 428 }
+              detail: { type: string }
+              instance: { type: string }
+    PreconditionFailed412:
+      description: Precondition Failed
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            properties:
+              type: { type: string }
+              title: { type: string, example: Precondition Failed }
+              status: { type: integer, example: 412 }
+              detail: { type: string }
+              instance: { type: string }
+  parameters:
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+      description: ETag required for conditional requests. Use the latest ETag from GET /notes/{id}.

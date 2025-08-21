@@ -6,6 +6,6 @@
     "strict": true,
     "outDir": "./dist",
     "esModuleInterop": true,
-    "types": ["vitest/globals"]
+    "types": ["vitest/globals"],
   }
 }

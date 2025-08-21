@@ -81,6 +81,18 @@ router.put("/:id", async (req, res) => {
   if (!parsed.success) throw new BadRequestError("invalid id");
   const id = parsed.data;
 
+  // If-Match 必須（前提条件が無ければ 428）
+  const ifMatch = parseIfMatch(req.headers["if-match"]);
+  if (ifMatch.length === 0) {
+    return res.status(428).type("application/problem+json").json({
+      type: "https://datatracker.ietf.org/doc/html/rfc6585#section-3",
+      title: "Precondition Required",
+      status: 428,
+      detail: "If-Match header is required for this operation.",
+      instance: req.originalUrl,
+    });
+  }
+
   // 現在のレコードを取得して ETag を計算
   const current = await prisma.note.findUnique({ where: { id } });
   if (!current) throw new NotFoundError("note not found", { id });
@@ -92,7 +104,6 @@ router.put("/:id", async (req, res) => {
   );
 
   // If-Match（前提条件）を満たさない場合は 412
-  const ifMatch = parseIfMatch(req.headers["if-match"]);
   if (
     ifMatch.length > 0 &&
     !ifMatch.includes("*") &&
@@ -114,14 +125,42 @@ router.put("/:id", async (req, res) => {
 
   const input = noteUpdateSchema.parse(merged);
 
-  const note = await prisma.note.update({ where: { id }, data: input });
-  res.json({ data: note });
+  // --- DBレベルの条件付き更新（updatedAt一致）: 二重ガード
+  const prevUpdatedAt = current.updatedAt;
+  const upd = await prisma.note.updateMany({
+    where: { id, updatedAt: prevUpdatedAt },
+    data: input,
+  });
+  if (upd.count === 0) {
+    return res.status(412).type("application/problem+json").json({
+      type: "urn:problem:conflict",
+      title: "Precondition Failed",
+      status: 412,
+      detail: "Record was modified by another request.",
+      instance: req.originalUrl,
+    });
+  }
+  // 反映後の最新値を返す（ETag/Last-Modified計算のため）
+  const fresh = await prisma.note.findUniqueOrThrow({ where: { id } });
+  return res.json({ data: fresh });
 });
 
 router.delete("/:id", async (req, res) => {
   const parsed = z.coerce.number().int().positive().safeParse(req.params.id);
   if (!parsed.success) throw new BadRequestError("invalid id");
   const id = parsed.data;
+
+  // If-Match 必須（前提条件が無ければ 428）
+  const ifMatch = parseIfMatch(req.headers["if-match"]);
+  if (ifMatch.length === 0) {
+    return res.status(428).type("application/problem+json").json({
+      type: "https://datatracker.ietf.org/doc/html/rfc6585#section-3",
+      title: "Precondition Required",
+      status: 428,
+      detail: "If-Match header is required for this operation.",
+      instance: req.originalUrl,
+    });
+  }
 
   const current = await prisma.note.findUnique({ where: { id } });
   if (!current) throw new NotFoundError("note not found", { id });
@@ -131,7 +170,6 @@ router.delete("/:id", async (req, res) => {
     current.body,
     current.updatedAt.getTime()
   );
-  const ifMatch = parseIfMatch(req.headers["if-match"]);
   if (
     ifMatch.length > 0 &&
     !ifMatch.includes("*") &&
@@ -146,8 +184,83 @@ router.delete("/:id", async (req, res) => {
     });
   }
 
-  await prisma.note.delete({ where: { id } });
-  res.status(204).send();
+  const prevUpdatedAt = current.updatedAt;
+  const del = await prisma.note.deleteMany({
+    where: { id, updatedAt: prevUpdatedAt },
+  });
+  if (del.count === 0) {
+    return res.status(412).type("application/problem+json").json({
+      type: "urn:problem:conflict",
+      title: "Precondition Failed",
+      status: 412,
+      detail: "Record was modified by another request.",
+      instance: req.originalUrl,
+    });
+  }
+  return res.status(204).send();
+});
+
+router.patch("/:id", async (req, res) => {
+  const parsed = z.coerce.number().int().positive().safeParse(req.params.id);
+  if (!parsed.success) throw new BadRequestError("invalid id");
+  const id = parsed.data;
+
+  // If-Match 必須（前提条件が無ければ 428）
+  const ifMatch = parseIfMatch(req.headers["if-match"]);
+  if (ifMatch.length === 0) {
+    return res.status(428).type("application/problem+json").json({
+      type: "https://datatracker.ietf.org/doc/html/rfc6585#section-3",
+      title: "Precondition Required",
+      status: 428,
+      detail: "If-Match header is required for this operation.",
+      instance: req.originalUrl,
+    });
+  }
+
+  // 現在レコード取得 & 現在ETag
+  const current = await prisma.note.findUnique({ where: { id } });
+  if (!current) throw new NotFoundError("note not found", { id });
+  const currentEtag = weakEtagFromParts(
+    current.id,
+    current.title,
+    current.body,
+    current.updatedAt.getTime()
+  );
+
+  // ETag 不一致 → 412
+  if (!ifMatch.includes("*") && !ifMatch.includes(currentEtag)) {
+    return res.status(412).type("application/problem+json").json({
+      type: "https://datatracker.ietf.org/doc/html/rfc9110#name-if-match",
+      title: "Precondition Failed",
+      status: 412,
+      detail: "ETag precondition failed",
+      instance: req.originalUrl,
+    });
+  }
+
+  // 欠けた値は既存値で補完してからスキーマ検証（スキーマは変更しない）
+  const merged = {
+    title: req.body?.title ?? current.title,
+    body: req.body?.body ?? current.body ?? undefined,
+  };
+  const input = noteUpdateSchema.parse(merged);
+
+  const prevUpdatedAt = current.updatedAt;
+  const upd = await prisma.note.updateMany({
+    where: { id, updatedAt: prevUpdatedAt },
+    data: input,
+  });
+  if (upd.count === 0) {
+    return res.status(412).type("application/problem+json").json({
+      type: "urn:problem:conflict",
+      title: "Precondition Failed",
+      status: 412,
+      detail: "Record was modified by another request.",
+      instance: req.originalUrl,
+    });
+  }
+  const fresh = await prisma.note.findUniqueOrThrow({ where: { id } });
+  return res.json({ data: fresh });
 });
 
 export default router;

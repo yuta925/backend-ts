@@ -39,9 +39,12 @@ describe("Notes API", () => {
   });
 
   it("PUT/DELETE not found -> 404 (P2025)", async () => {
-    const u = await request(app).put("/notes/9999").send({ title: "x" });
+    const u = await request(app)
+      .put("/notes/9999")
+      .set("If-Match", "*")
+      .send({ title: "x" });
     expect(u.status).toBe(404);
-    const d = await request(app).delete("/notes/9999");
+    const d = await request(app).delete("/notes/9999").set("If-Match", "*");
     expect(d.status).toBe(404);
   });
 
@@ -74,5 +77,118 @@ describe("Notes API", () => {
       .set("If-Match", 'W/"deadbeef"')
       .send({ body: "v3" });
     expect(bad.status).toBe(412);
+  });
+
+  it("PUT without If-Match -> 428 Precondition Required", async () => {
+    const created = await request(app)
+      .post("/notes")
+      .send({ title: "need", body: "v1" });
+    const id = created.body.data.id as number;
+
+    const res = await request(app).put(`/notes/${id}`).send({ body: "v2" });
+    expect(res.status).toBe(428);
+  });
+
+  it("Conditional update with outdated updatedAt -> 412", async () => {
+    const created = await request(app)
+      .post("/notes")
+      .send({ title: "cond", body: "v1" });
+    const id = created.body.data.id as number;
+
+    // まず最新ETag取得
+    const first = await request(app).get(`/notes/${id}`);
+    const etag = String(first.headers["etag"]);
+
+    // 先に誰かが更新（v2）
+    await request(app)
+      .put(`/notes/${id}`)
+      .set("If-Match", etag)
+      .send({ body: "v2" });
+
+    // 古い ETag で再更新（v3）→ 412
+    const second = await request(app)
+      .put(`/notes/${id}`)
+      .set("If-Match", etag) // 古い
+      .send({ body: "v3" });
+
+    expect([412, 409]).toContain(second.status); // 実装により412固定でOK
+  });
+
+  it("DB conditional update (updatedAt) -> 412 when outdated", async () => {
+    const created = await request(app)
+      .post("/notes")
+      .send({ title: "cond-db", body: "v1" });
+    const id = created.body.data.id as number;
+
+    // A: 取得
+    const first = await request(app).get(`/notes/${id}`);
+    const etagA = String(first.headers["etag"]);
+
+    // B: 更新して ETag を更新
+    const b = await request(app)
+      .patch(`/notes/${id}`)
+      .set("If-Match", etagA)
+      .send({ body: "v2" });
+    expect(b.status).toBe(200);
+
+    // A: 古い ETag で更新 → 412
+    const a = await request(app)
+      .put(`/notes/${id}`)
+      .set("If-Match", etagA)
+      .send({ body: "v3" });
+
+    expect(a.status).toBe(412);
+  });
+
+  it("PATCH without If-Match -> 428 Precondition Required", async () => {
+    const created = await request(app)
+      .post("/notes")
+      .send({ title: "patch-need", body: "v1" });
+    const id = created.body.data.id as number;
+
+    const res = await request(app).patch(`/notes/${id}`).send({ body: "v2" });
+    expect(res.status).toBe(428);
+  });
+
+  it("PATCH with correct ETag -> 200", async () => {
+    const created = await request(app)
+      .post("/notes")
+      .send({ title: "patch-ok", body: "v1" });
+    const id = created.body.data.id as number;
+
+    const first = await request(app).get(`/notes/${id}`);
+    const etag = String(first.headers["etag"]);
+
+    const res = await request(app)
+      .patch(`/notes/${id}`)
+      .set("If-Match", etag)
+      .send({ body: "v2" });
+
+    expect(res.status).toBe(200);
+    expect(res.body?.data?.body).toBe("v2");
+  });
+
+  it("PATCH with stale ETag -> 412 Precondition Failed", async () => {
+    const created = await request(app)
+      .post("/notes")
+      .send({ title: "patch-stale", body: "v1" });
+    const id = created.body.data.id as number;
+
+    const first = await request(app).get(`/notes/${id}`);
+    const etag1 = String(first.headers["etag"]);
+
+    // 先に更新して ETag を変える
+    const ok = await request(app)
+      .patch(`/notes/${id}`)
+      .set("If-Match", etag1)
+      .send({ body: "v2" });
+    expect(ok.status).toBe(200);
+
+    // 古い ETag のまま再度 PATCH → 412
+    const stale = await request(app)
+      .patch(`/notes/${id}`)
+      .set("If-Match", etag1)
+      .send({ body: "v3" });
+    expect(stale.status).toBe(412);
   });
 });
