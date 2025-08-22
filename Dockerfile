@@ -15,3 +15,6 @@ RUN npm install
 COPY . .
 
 CMD ["npm", "run", "dev"]
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=6 \
+  CMD node -e "require('http').get('http://localhost:3000/readyz', r => process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"

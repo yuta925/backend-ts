@@ -9,6 +9,7 @@ import fs from "fs";
 import path from "path";
 import yaml from "yaml";
 import { apiLimiter } from "./middlewares/rateLimit";
+import health from "./routes/health";
 
 export function createApp() {
   const app = express();
@@ -37,6 +38,7 @@ export function createApp() {
   }
 
   app.use("/", router);
+  app.use(health);
   app.use(notFound);
   app.use(errorHandler);
 
